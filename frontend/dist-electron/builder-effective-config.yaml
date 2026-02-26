@@ -1,0 +1,16 @@
+directories:
+  output: dist-electron
+  buildResources: build
+appId: com.user.studytracker
+productName: Study Tracker
+win:
+  target: nsis
+files:
+  - filter:
+      - dist/**/*
+      - electron/**/*
+publish:
+  - provider: github
+    owner: samuelbellan
+    repo: study-tracker
+electronVersion: 40.6.1
