@@ -8,7 +8,7 @@ function getData() {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (raw) return JSON.parse(raw);
     } catch (e) { /* ignore */ }
-    return { subjects: [], sessions: [], questions: [] };
+    return { subjects: [], sessions: [] };
 }
 
 function saveData(data) {
@@ -42,55 +42,37 @@ export function getSessions() {
 }
 
 export function saveSession(session) {
-    // session = { subject, date, duration, startTime, endTime }
     const data = getData();
     data.sessions.push(session);
     saveData(data);
     return data.sessions;
 }
 
-export function getSessionsByPeriod(startDate, endDate) {
-    const sessions = getSessions();
-    return sessions.filter((s) => {
-        const d = new Date(s.date);
-        return d >= startDate && d <= endDate;
-    });
-}
-
-export function getSessionsBySubject(subject) {
-    return getSessions().filter((s) => s.subject === subject);
-}
-
-// ===== Questões =====
-export function getQuestions() {
-    return getData().questions;
-}
-
-export function saveQuestionEntry(entry) {
-    // entry = { subject, date, total, correct }
+export function deleteSession(index) {
     const data = getData();
-    data.questions.push({ ...entry, wrong: entry.total - entry.correct });
+    data.sessions.splice(index, 1);
     saveData(data);
-    return data.questions;
+    return data.sessions;
+}
+
+export function clearAllSessions() {
+    const data = getData();
+    data.sessions = [];
+    saveData(data);
+    return data.sessions;
 }
 
 // ===== Estatísticas =====
 export function getStats() {
     const sessions = getSessions();
-    const questions = getQuestions();
 
-    // Total de horas
     const totalSeconds = sessions.reduce((acc, s) => acc + (s.duration || 0), 0);
     const totalHours = totalSeconds / 3600;
 
-    // Dias únicos estudados
     const uniqueDays = new Set(sessions.map((s) => s.date?.split('T')[0]));
     const daysCount = uniqueDays.size || 1;
-
-    // Média diária
     const dailyAvgHours = totalHours / daysCount;
 
-    // Semanas
     const firstSession = sessions.length > 0 ? new Date(sessions[0].date) : new Date();
     const weeksDiff = Math.max(1, Math.ceil((new Date() - firstSession) / (7 * 24 * 3600 * 1000)));
     const weeklyAvgHours = totalHours / weeksDiff;
@@ -101,21 +83,6 @@ export function getStats() {
         if (!subjectMap[s.subject]) subjectMap[s.subject] = { totalSeconds: 0, sessions: 0 };
         subjectMap[s.subject].totalSeconds += s.duration || 0;
         subjectMap[s.subject].sessions += 1;
-    });
-
-    // Questões totais
-    const totalQuestions = questions.reduce((acc, q) => acc + q.total, 0);
-    const totalCorrect = questions.reduce((acc, q) => acc + q.correct, 0);
-    const totalWrong = totalQuestions - totalCorrect;
-    const accuracy = totalQuestions > 0 ? ((totalCorrect / totalQuestions) * 100).toFixed(1) : 0;
-
-    // Questões por matéria
-    const questionsBySubject = {};
-    questions.forEach((q) => {
-        if (!questionsBySubject[q.subject]) questionsBySubject[q.subject] = { total: 0, correct: 0, wrong: 0 };
-        questionsBySubject[q.subject].total += q.total;
-        questionsBySubject[q.subject].correct += q.correct;
-        questionsBySubject[q.subject].wrong += q.total - q.correct;
     });
 
     // Últimos 7 dias
@@ -130,17 +97,56 @@ export function getStats() {
         last7.push({ label: dayLabel, hours: daySeconds / 3600, date: dayStr });
     }
 
+    // Horas de hoje
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todaySessions = sessions.filter((s) => s.date?.startsWith(todayStr));
+    const todaySeconds = todaySessions.reduce((acc, s) => acc + (s.duration || 0), 0);
+
     return {
         totalHours,
         totalSessions: sessions.length,
         dailyAvgHours,
         weeklyAvgHours,
         subjectMap,
-        totalQuestions,
-        totalCorrect,
-        totalWrong,
-        accuracy,
-        questionsBySubject,
-        last7
+        last7,
+        todaySeconds
+    };
+}
+
+// ===== Estatísticas por Intervalo de Datas =====
+export function getStatsForRange(startDate, endDate) {
+    const sessions = getSessions();
+    const start = new Date(startDate);
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(endDate);
+    end.setHours(23, 59, 59, 999);
+
+    const filtered = sessions.filter((s) => {
+        const d = new Date(s.date);
+        return d >= start && d <= end;
+    });
+
+    const totalSeconds = filtered.reduce((acc, s) => acc + (s.duration || 0), 0);
+    const totalHours = totalSeconds / 3600;
+
+    // Dias no intervalo (mínimo 1)
+    const diffMs = end - start;
+    const daysInRange = Math.max(1, Math.ceil(diffMs / (24 * 3600 * 1000)));
+    const dailyAvgHours = totalHours / daysInRange;
+
+    // Por matéria
+    const subjectMap = {};
+    filtered.forEach((s) => {
+        if (!subjectMap[s.subject]) subjectMap[s.subject] = { totalSeconds: 0, sessions: 0 };
+        subjectMap[s.subject].totalSeconds += s.duration || 0;
+        subjectMap[s.subject].sessions += 1;
+    });
+
+    return {
+        totalHours,
+        totalSessions: filtered.length,
+        dailyAvgHours,
+        daysInRange,
+        subjectMap
     };
 }

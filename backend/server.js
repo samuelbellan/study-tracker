@@ -14,7 +14,7 @@ const io = new Server(server, {
   },
 });
 
-// Store: socketId -> { username, isStudying, studyType, subject, stats }
+// Store: socketId -> { username, isStudying, subject, studyStartTime, stats, todaySeconds }
 const activeUsers = new Map();
 
 io.on('connection', (socket) => {
@@ -24,58 +24,68 @@ io.on('connection', (socket) => {
     activeUsers.set(socket.id, {
       username,
       isStudying: false,
-      studyType: '',    // 'teoria' ou 'questoes'
       subject: '',
-      stats: null       // resumo das stats do usuário
+      studyStartTime: null,
+      stats: null,
+      todaySeconds: 0
     });
-    io.emit('users_update', Array.from(activeUsers.values()));
+    broadcastUsers();
     console.log(`${username} joined.`);
   });
 
-  // Começa a estudar com tipo e matéria
+  function broadcastUsers() {
+    const now = Date.now();
+    const users = Array.from(activeUsers.values()).map(u => ({
+      ...u,
+      studyElapsed: u.isStudying && u.studyStartTime ? Math.floor((now - u.studyStartTime) / 1000) : 0
+    }));
+    io.emit('users_update', users);
+  }
+
   socket.on('start_study', (data) => {
-    // data = { username, studyType, subject } OU apenas username (retrocompat)
     const user = activeUsers.get(socket.id);
     if (user) {
       user.isStudying = true;
       if (typeof data === 'object') {
-        user.studyType = data.studyType || '';
         user.subject = data.subject || '';
+        // Use client timestamp if provided, otherwise server time
+        user.studyStartTime = data.startTime || Date.now();
+      } else {
+        user.studyStartTime = Date.now();
       }
       activeUsers.set(socket.id, user);
     }
     const name = typeof data === 'object' ? data.username : data;
     socket.broadcast.emit('friend_started_studying', name);
-    io.emit('users_update', Array.from(activeUsers.values()));
-    console.log(`${name} started studying (${user?.studyType} - ${user?.subject})`);
+    broadcastUsers();
+    console.log(`${name} started studying (${user?.subject})`);
   });
 
-  // Para de estudar
   socket.on('stop_study', (username) => {
     const user = activeUsers.get(socket.id);
     if (user) {
       user.isStudying = false;
-      user.studyType = '';
       user.subject = '';
+      user.studyStartTime = null;
       activeUsers.set(socket.id, user);
     }
-    io.emit('users_update', Array.from(activeUsers.values()));
+    broadcastUsers();
   });
 
-  // Atualiza stats do usuário (resumo para amigos verem)
   socket.on('update_stats', (stats) => {
     const user = activeUsers.get(socket.id);
     if (user) {
       user.stats = stats;
+      user.todaySeconds = stats.todaySeconds || 0;
       activeUsers.set(socket.id, user);
-      io.emit('users_update', Array.from(activeUsers.values()));
+      broadcastUsers();
     }
   });
 
   socket.on('disconnect', () => {
     console.log(`User disconnected: ${socket.id}`);
     activeUsers.delete(socket.id);
-    io.emit('users_update', Array.from(activeUsers.values()));
+    broadcastUsers();
   });
 });
 
