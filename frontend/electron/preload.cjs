@@ -1,6 +1,8 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Expondo APIs seguras para o frontend, se necessário
 contextBridge.exposeInMainWorld('electronAPI', {
-    // adicione métodos futuramente se precisar de IPC
+    enterMiniMode: (users) => ipcRenderer.send('enter-mini-mode', users),
+    exitMiniMode: () => ipcRenderer.send('exit-mini-mode'),
+    syncMiniAvatars: (users) => ipcRenderer.send('sync-mini-avatars', users),
+    windowControl: (action) => ipcRenderer.send('window-control', action)
 });

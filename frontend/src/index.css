@@ -23,11 +23,29 @@ body {
   margin: 0;
   display: flex;
   place-items: center;
-  min-width: 320px;
   min-height: 100vh;
   background: radial-gradient(circle at top, #1e293b, var(--bg-color));
   overflow: hidden;
   -webkit-app-region: drag;
+}
+
+/* Quando em Mini Mode, TUDO fica totalmente transparente */
+body.mini-mode,
+body.mini-mode #root,
+body.mini-mode html {
+  background: transparent !important;
+  background-color: transparent !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: visible !important;
+  -webkit-app-region: no-drag;
+}
+
+html.mini-mode {
+  background: transparent !important;
+  background-color: transparent !important;
 }
 
 #root {
@@ -81,7 +99,10 @@ input:focus {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
-input, button, .friends-list, .logout-btn {
+input,
+button,
+.friends-list,
+.logout-btn {
   -webkit-app-region: no-drag;
 }
 
@@ -117,13 +138,16 @@ button:active {
 ::-webkit-scrollbar {
   width: 8px;
 }
+
 ::-webkit-scrollbar-track {
   background: transparent;
 }
+
 ::-webkit-scrollbar-thumb {
   background: #334155;
   border-radius: 4px;
 }
+
 ::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
