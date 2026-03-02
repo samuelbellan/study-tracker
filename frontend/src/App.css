@@ -1162,6 +1162,13 @@
   flex: 1;
 }
 
+.session-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.edit-session-btn,
 .delete-session-btn {
   background: transparent;
   padding: 0.5rem;
@@ -1169,13 +1176,17 @@
   color: var(--text-muted);
   border: none;
   min-width: auto;
+  transition: all 0.2s;
+}
+
+.edit-session-btn:hover {
+  background: rgba(165, 180, 252, 0.15);
+  color: #a5b4fc;
 }
 
 .delete-session-btn:hover {
   background: rgba(239, 68, 68, 0.15);
   color: #ef4444;
-  transform: none;
-  box-shadow: none;
 }
 
 /* Weekly chart */

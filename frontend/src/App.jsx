@@ -3,12 +3,13 @@ import { io } from 'socket.io-client';
 import {
   Play, Square, Users, Clock, LogOut, Minimize2, X, Minus,
   BookOpen, BarChart3, Plus, Trash2, Eye, Pause, Calendar, ZoomIn, ZoomOut,
-  CalendarDays, Search, Filter
+  CalendarDays, Search, Filter, Edit2
 } from 'lucide-react';
 import './App.css';
 import {
   getSubjects, addSubject, removeSubject,
-  getSessions, saveSession, deleteSession, clearAllSessions, getStats, getStatsForRange
+  getSessions, saveSession, deleteSession, clearAllSessions, getStats, getStatsForRange,
+  loginUser, migrateLocalData, getSessionsAsync, getSubjectsAsync, getStatsAsync, editSession, setUserId
 } from './StudyData';
 
 const SOCKET_URL = 'https://study-tracker-2t7y.onrender.com';
@@ -332,7 +333,8 @@ function App() {
   const [showTimeline, setShowTimeline] = useState(false);
   const [newSubject, setNewSubject] = useState('');
   const [stats, setStats] = useState(null);
-  const [sessionHistory, setSessionHistory] = useState(getSessions());
+  const [sessionHistory, setSessionHistory] = useState([]);
+  const [editingSession, setEditingSession] = useState(null);
   const [viewingFriend, setViewingFriend] = useState(null);
   const [manualSubject, setManualSubject] = useState('');
   const [manualHours, setManualHours] = useState('');
@@ -440,33 +442,60 @@ function App() {
   }, [isStudying]);
 
   useEffect(() => {
-    if (activeTab === 'estatisticas') setStats(getStats());
-    if (activeTab === 'estudar') setSessionHistory(getSessions());
-  }, [activeTab]);
+    const loadTabData = async () => {
+      if (activeTab === 'estatisticas') {
+        const s = await getStatsAsync();
+        setStats(s);
+      }
+      if (activeTab === 'estudar') {
+        const sess = await getSessionsAsync();
+        setSessionHistory(sess);
+      }
+    };
+    if (isJoined) loadTabData();
+  }, [activeTab, isJoined]);
 
-  const handleJoin = (e) => {
+  const handleJoin = async (e) => {
     e.preventDefault();
     if (username.trim() && socket) {
-      socket.emit('user_join', username.trim());
-      localStorage.setItem('studytracker_username', username.trim());
-      setIsJoined(true);
-      setTimeout(() => socket.emit('update_stats', getStats()), 1000);
+      try {
+        const authData = await loginUser(username.trim());
+        setUserId(authData.userId);
+        setSubjects(authData.subjects || []);
+        await migrateLocalData();
+        const sessions = await getSessionsAsync();
+        setSessionHistory(sessions);
+        socket.emit('user_join', username.trim());
+        setIsJoined(true);
+        setTimeout(async () => {
+          const s = await getStatsAsync();
+          socket.emit('update_stats', s);
+        }, 500);
+      } catch (err) {
+        console.error('Login failed:', err);
+        // Fallback: join anyway with localStorage
+        socket.emit('user_join', username.trim());
+        localStorage.setItem('studytracker_username', username.trim());
+        setIsJoined(true);
+      }
     }
   };
 
-  const toggleStudy = () => {
+  const toggleStudy = async () => {
     if (!socket) return;
     if (isStudying) {
       socket.emit('stop_study', username);
       setIsStudying(false);
       if (startTimeRef.current && selectedSubject) {
-        saveSession({
+        await saveSession({
           subject: selectedSubject,
           date: new Date().toISOString(), duration: studyTime,
           startTime: startTimeRef.current, endTime: new Date().toISOString()
         });
-        setSessionHistory(getSessions());
-        socket.emit('update_stats', getStats());
+        const sessions = await getSessionsAsync();
+        setSessionHistory(sessions);
+        const s = await getStatsAsync();
+        socket.emit('update_stats', s);
       }
       setStudyTime(0);
       setShowTimeline(true);
@@ -479,16 +508,21 @@ function App() {
     }
   };
 
-  const handleAddSubject = (e) => {
+  const handleAddSubject = async (e) => {
     e.preventDefault();
-    if (newSubject.trim()) { setSubjects(addSubject(newSubject.trim())); setNewSubject(''); }
+    if (newSubject.trim()) {
+      const subs = await addSubject(newSubject.trim());
+      setSubjects(subs);
+      setNewSubject('');
+    }
   };
-  const handleRemoveSubject = (name) => {
-    setSubjects(removeSubject(name));
+  const handleRemoveSubject = async (name) => {
+    const subs = await removeSubject(name);
+    setSubjects(subs);
     if (selectedSubject === name) setSelectedSubject('');
   };
 
-  const handleManualSession = (e) => {
+  const handleManualSession = async (e) => {
     e.preventDefault();
     if (!manualSubject) return;
     const h = parseInt(manualHours) || 0;
@@ -496,16 +530,17 @@ function App() {
     const totalSec = h * 3600 + m * 60;
     if (totalSec <= 0) return;
     const sessionDate = manualDate ? new Date(manualDate + 'T12:00:00').toISOString() : new Date().toISOString();
-    saveSession({
+    await saveSession({
       subject: manualSubject,
       date: sessionDate, duration: totalSec,
       startTime: sessionDate, endTime: sessionDate, manual: true
     });
-    setSessionHistory(getSessions());
+    const sessions = await getSessionsAsync();
+    setSessionHistory(sessions);
     const dateLabel = manualDate !== todayISO() ? ` em ${new Date(manualDate + 'T12:00:00').toLocaleDateString('pt-BR')}` : '';
     showMSNNotif(`${h}h${m > 0 ? m + 'min' : ''} registradas em ${manualSubject}${dateLabel}`, 'studying');
     setManualHours(''); setManualMinutes(''); setManualDate(todayISO());
-    if (socket) socket.emit('update_stats', getStats());
+    if (socket) { const s = await getStatsAsync(); socket.emit('update_stats', s); }
   };
 
   const handleRangeQuery = () => {
@@ -513,7 +548,7 @@ function App() {
     setRangeStats(getStatsForRange(rangeStart, rangeEnd));
   };
 
-  const handleBulkHours = (e) => {
+  const handleBulkHours = async (e) => {
     e.preventDefault();
     if (!bulkSubject || !bulkStartDate || !bulkEndDate) return;
     const h = parseInt(bulkHours) || 0;
@@ -525,19 +560,17 @@ function App() {
     const end = new Date(bulkEndDate + 'T12:00:00');
     if (end < start) { showMSNNotif('Data final deve ser após a inicial', 'idle'); return; }
 
-    // Calculate days in range
     const diffMs = end - start;
     const daysInRange = Math.max(1, Math.round(diffMs / (24 * 3600 * 1000)) + 1);
     const secPerDay = Math.floor(totalSec / daysInRange);
     const remainder = totalSec - secPerDay * daysInRange;
 
-    // Create one session per day, distributing hours evenly
     for (let i = 0; i < daysInRange; i++) {
       const d = new Date(start);
       d.setDate(d.getDate() + i);
       const daySec = secPerDay + (i === 0 ? remainder : 0);
       if (daySec <= 0) continue;
-      saveSession({
+      await saveSession({
         subject: bulkSubject,
         date: d.toISOString(),
         duration: daySec,
@@ -547,12 +580,13 @@ function App() {
         bulk: true
       });
     }
-    setSessionHistory(getSessions());
+    const sessions = await getSessionsAsync();
+    setSessionHistory(sessions);
     const startLabel = new Date(bulkStartDate + 'T12:00:00').toLocaleDateString('pt-BR');
     const endLabel = new Date(bulkEndDate + 'T12:00:00').toLocaleDateString('pt-BR');
     showMSNNotif(`${h}h${m > 0 ? m + 'min' : ''} distribuídas de ${startLabel} a ${endLabel}`, 'studying');
     setBulkHours(''); setBulkMinutes(''); setBulkStartDate(''); setBulkEndDate(todayISO());
-    if (socket) socket.emit('update_stats', getStats());
+    if (socket) { const s = await getStatsAsync(); socket.emit('update_stats', s); }
   };
 
   const enterMiniMode = () => {
@@ -657,6 +691,59 @@ function App() {
       </div>
 
       {viewingFriend && <FriendStatsModal friend={viewingFriend} onClose={() => setViewingFriend(null)} />}
+
+      {/* Edit Session Modal */}
+      {editingSession && (() => {
+        const s = editingSession;
+        const editHours = Math.floor((s.duration || 0) / 3600);
+        const editMinutes = Math.floor(((s.duration || 0) % 3600) / 60);
+        const editDate = s.date ? new Date(s.date).toISOString().split('T')[0] : todayISO();
+        return (
+          <div className="modal-overlay" onClick={() => setEditingSession(null)}>
+            <div className="modal-content glass-panel" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-header">
+                <h3><Edit2 size={18} /> Editar Sessão</h3>
+                <button className="modal-close" onClick={() => setEditingSession(null)}><X size={18} /></button>
+              </div>
+              <form onSubmit={async (e) => {
+                e.preventDefault();
+                const fd = new FormData(e.target);
+                const newH = parseInt(fd.get('hours')) || 0;
+                const newM = parseInt(fd.get('minutes')) || 0;
+                const newDuration = newH * 3600 + newM * 60;
+                if (newDuration <= 0) return;
+                const sessionId = s._id || s.id;
+                await editSession(sessionId, {
+                  subject: fd.get('subject'),
+                  date: new Date(fd.get('date') + 'T12:00:00').toISOString(),
+                  duration: newDuration
+                });
+                const sessions = await getSessionsAsync();
+                setSessionHistory(sessions);
+                const st = await getStatsAsync();
+                setStats(st);
+                setEditingSession(null);
+                showMSNNotif('Sessão atualizada!', 'studying');
+                if (socket) socket.emit('update_stats', st);
+              }} className="manual-form">
+                <div className="manual-row">
+                  <select name="subject" defaultValue={s.subject} required>
+                    {subjects.map((sub, i) => <option key={i} value={sub}>{sub}</option>)}
+                  </select>
+                </div>
+                <div className="manual-row">
+                  <div className="q-field"><label>Horas</label><input name="hours" type="number" min="0" defaultValue={editHours} /></div>
+                  <div className="q-field"><label>Minutos</label><input name="minutes" type="number" min="0" max="59" defaultValue={editMinutes} /></div>
+                </div>
+                <div className="manual-row">
+                  <div className="q-field"><label><Calendar size={12} /> Data</label><input name="date" type="date" defaultValue={editDate} /></div>
+                  <button type="submit" className="manual-submit">Salvar Alterações</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       <div className="dashboard-container">
         <header className="dashboard-header glass-panel">
@@ -872,13 +959,14 @@ function App() {
                   <div className="section-header-with-actions">
                     <h3 className="section-title"><Clock size={18} /> Sessões Recentes</h3>
                     {sessionHistory.length > 0 && (
-                      <button className="clear-all-btn" onClick={() => {
+                      <button className="clear-all-btn" onClick={async () => {
                         if (confirm('Deseja excluir TODAS as sessões de estudo?')) {
-                          clearAllSessions();
+                          await clearAllSessions();
                           setSessionHistory([]);
-                          setStats(getStats());
+                          const s = await getStatsAsync();
+                          setStats(s);
                           showMSNNotif('Todas as sessões foram excluídas', 'idle');
-                          if (socket) socket.emit('update_stats', getStats());
+                          if (socket) socket.emit('update_stats', s);
                         }
                       }}>
                         <Trash2 size={14} /> Limpar Tudo
@@ -904,10 +992,10 @@ function App() {
                   </div>
 
                   <div className="sessions-list">
-                    {filteredSessions.slice(-15).reverse().map((s, i) => {
-                      const actualIndex = sessionHistory.indexOf(s);
+                    {filteredSessions.slice(-15).reverse().map((s) => {
+                      const sessionId = s._id || s.id;
                       return (
-                        <div key={i} className="session-item">
+                        <div key={sessionId || Math.random()} className="session-item">
                           <div className="session-info">
                             <div className="session-subject">{s.subject}</div>
                             <div className="session-meta">
@@ -916,15 +1004,22 @@ function App() {
                               {s.manual && <span className="session-manual-badge">manual</span>}
                             </div>
                           </div>
-                          <button className="delete-session-btn" onClick={() => {
-                            deleteSession(actualIndex);
-                            setSessionHistory(getSessions());
-                            setStats(getStats());
-                            showMSNNotif('Sessão excluída', 'idle');
-                            if (socket) socket.emit('update_stats', getStats());
-                          }} title="Excluir sessão">
-                            <Trash2 size={14} />
-                          </button>
+                          <div className="session-actions">
+                            <button className="edit-session-btn" onClick={() => setEditingSession(s)} title="Editar sessão">
+                              <Edit2 size={14} />
+                            </button>
+                            <button className="delete-session-btn" onClick={async () => {
+                              await deleteSession(sessionId);
+                              const sess = await getSessionsAsync();
+                              setSessionHistory(sess);
+                              const st = await getStatsAsync();
+                              setStats(st);
+                              showMSNNotif('Sessão excluída', 'idle');
+                              if (socket) socket.emit('update_stats', st);
+                            }} title="Excluir sessão">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </div>
                       );
                     })}
