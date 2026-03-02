@@ -22,13 +22,17 @@ const io = new Server(server, {
 app.post('/api/auth', async (req, res) => {
   try {
     const { username } = req.body;
+    console.log(`[Auth API] Login attempt for username: '${username}'`);
     if (!username || !username.trim()) return res.status(400).json({ error: 'Username required' });
     let user = await User.findOne({ username: username.trim() });
     if (!user) {
+      console.log(`[Auth API] User '${username}' not found. Creating new user...`);
       user = await User.create({ username: username.trim() });
     }
+    console.log(`[Auth API] Login successful for '${username}'. ID: ${user._id}`);
     res.json({ userId: user._id, username: user.username, subjects: user.subjects });
   } catch (err) {
+    console.error(`[Auth API Error]`, err);
     res.status(500).json({ error: err.message });
   }
 });
@@ -45,16 +49,25 @@ app.get('/api/subjects/:userId', async (req, res) => {
 app.post('/api/subjects/:userId', async (req, res) => {
   try {
     const { action, name } = req.body; // action: 'add' | 'remove'
+    console.log(`[Subject API] User ${req.params.userId} requested action '${action}' for subject '${name}'`);
     const user = await User.findById(req.params.userId);
-    if (!user) return res.status(404).json({ error: 'User not found' });
+    if (!user) {
+      console.error(`[Subject API] User ${req.params.userId} not found`);
+      return res.status(404).json({ error: 'User not found' });
+    }
     if (action === 'add' && name && !user.subjects.includes(name.trim())) {
       user.subjects.push(name.trim());
+      console.log(`[Subject API] Added subject '${name}' for User ${req.params.userId}`);
     } else if (action === 'remove') {
       user.subjects = user.subjects.filter(s => s !== name);
+      console.log(`[Subject API] Removed subject '${name}' for User ${req.params.userId}`);
     }
     await user.save();
     res.json(user.subjects);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    console.error(`[Subject API Error]`, err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // --- Sessions CRUD ---

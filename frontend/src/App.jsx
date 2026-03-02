@@ -451,6 +451,10 @@ function App() {
         const sess = await getSessionsAsync();
         setSessionHistory(sess);
       }
+      if (activeTab === 'materias') {
+        const subs = await getSubjectsAsync();
+        setSubjects(subs);
+      }
     };
     if (isJoined) loadTabData();
   }, [activeTab, isJoined]);
