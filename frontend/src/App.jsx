@@ -459,17 +459,16 @@ function App() {
     if (isJoined) loadTabData();
   }, [activeTab, isJoined]);
 
-  const handleJoin = async (e) => {
-    e.preventDefault();
-    if (username.trim() && socket) {
+  const performLogin = async (name) => {
+    if (name.trim() && socket) {
       try {
-        const authData = await loginUser(username.trim());
+        const authData = await loginUser(name.trim());
         setUserId(authData.userId);
         setSubjects(authData.subjects || []);
         await migrateLocalData();
         const sessions = await getSessionsAsync();
         setSessionHistory(sessions);
-        socket.emit('user_join', username.trim());
+        socket.emit('user_join', name.trim());
         setIsJoined(true);
         setTimeout(async () => {
           const s = await getStatsAsync();
@@ -478,11 +477,16 @@ function App() {
       } catch (err) {
         console.error('Login failed:', err);
         // Fallback: join anyway with localStorage
-        socket.emit('user_join', username.trim());
-        localStorage.setItem('studytracker_username', username.trim());
+        socket.emit('user_join', name.trim());
+        localStorage.setItem('studytracker_username', name.trim());
         setIsJoined(true);
       }
     }
+  };
+
+  const handleJoin = (e) => {
+    e.preventDefault();
+    performLogin(username);
   };
 
   const toggleStudy = async () => {
@@ -654,12 +658,25 @@ function App() {
 
   // ===== LOGIN =====
   if (!isJoined) {
+    const predefinedUsers = ['Samuel', 'Rodrigo', 'Dolacio'];
     return (
       <>
         <CustomTitleBar />
         <div className="glass-panel login-container">
           <h1 className="title">Study Tracker</h1>
-          <p className="subtitle">Entre e estude com seus amigos em tempo real</p>
+          <p className="subtitle">Escolha seu perfil ou entre com um novo</p>
+
+          <div className="predefined-users">
+            {predefinedUsers.map(u => (
+              <button key={u} type="button" className="user-profile-btn" onClick={() => { setUsername(u); performLogin(u); }}>
+                <div className="user-avatar">{u.charAt(0).toUpperCase()}</div>
+                <span>{u}</span>
+              </button>
+            ))}
+          </div>
+
+          <div className="login-divider"><span>ou</span></div>
+
           <form onSubmit={handleJoin} className="login-form">
             <input type="text" placeholder="Digite seu nome de usuário" value={username}
               onChange={(e) => setUsername(e.target.value)} required autoFocus />
