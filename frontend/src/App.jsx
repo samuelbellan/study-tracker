@@ -327,6 +327,7 @@ function App() {
   const [activeUsers, setActiveUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [inMiniMode, setInMiniMode] = useState(false);
+  const [serverStatus, setServerStatus] = useState('disconnected'); // 'connected', 'connecting', 'error', 'disconnected'
   const [activeTab, setActiveTab] = useState('estudar');
   const [subjects, setSubjects] = useState(getSubjects());
   const [selectedSubject, setSelectedSubject] = useState('');
@@ -366,11 +367,36 @@ function App() {
     setTimeout(() => setNotifications((prev) => prev.filter((n) => n.id !== id)), 4500);
   };
 
-  const createSocket = () => io(SOCKET_URL, { extraHeaders: { 'Bypass-Tunnel-Reminder': 'true' } });
+  const createSocket = () => {
+    return io(SOCKET_URL, {
+      extraHeaders: { 'Bypass-Tunnel-Reminder': 'true' },
+      transports: ['websocket', 'polling'], // Tenta os dois métodos
+      reconnectionAttempts: 10,
+      timeout: 20000 // 20s para o Cold Start do Render
+    });
+  };
 
   useEffect(() => {
-    const s = createSocket();
-    setSocket(s);
+    let s = socket;
+    if (!s) {
+      setServerStatus('connecting');
+      s = createSocket();
+      setSocket(s);
+    }
+
+    s.on('connect', () => {
+      setServerStatus('connected');
+    });
+
+    s.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+      setServerStatus('error');
+    });
+
+    s.on('disconnect', () => {
+      setServerStatus('disconnected');
+    });
+
     s.on('users_update', (users) => {
       // Compute local-relative studyStartTime from server-sent elapsed
       const processedUsers = users.map(u => ({
@@ -679,9 +705,18 @@ function App() {
 
           <form onSubmit={handleJoin} className="login-form">
             <input type="text" placeholder="Digite seu nome de usuário" value={username}
-              onChange={(e) => setUsername(e.target.value)} required autoFocus />
-            <button type="submit">Entrar <Play size={18} /></button>
+              onChange={(e) => setUsername(e.target.value)} required autoFocus disabled={serverStatus === 'connecting'} />
+            <button type="submit" disabled={serverStatus === 'connecting'}>
+              {serverStatus === 'connecting' ? 'Conectando Servidor...' : 'Entrar'} <Play size={18} />
+            </button>
           </form>
+
+          {/* Server Connection Status */}
+          <div style={{ marginTop: '1.5rem', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+            {serverStatus === 'connecting' && <span style={{ color: '#F59E0B' }}>Despertando o servidor (pode levar até 50 segundos) ⏳</span>}
+            {serverStatus === 'connected' && <span style={{ color: '#10B981' }}>Servidor Online 🟢</span>}
+            {serverStatus === 'error' && <span style={{ color: '#EF4444' }}>Problema de conexão! O Firewall ou Antivírus pode estar bloqueando 🔴</span>}
+          </div>
         </div>
       </>
     );
