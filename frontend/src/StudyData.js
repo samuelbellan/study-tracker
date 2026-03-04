@@ -13,6 +13,28 @@ let _cachedSubjects = null;
 export function setUserId(id) { _userId = id; }
 export function getUserId() { return _userId; }
 
+function persistLocalData() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        sessions: _cachedSessions || [],
+        subjects: _cachedSubjects || []
+    }));
+}
+
+function loadLocalDataIfNeeded() {
+    if (_cachedSubjects !== null && _cachedSessions !== null) return;
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+        try {
+            const data = JSON.parse(raw);
+            _cachedSubjects = data.subjects || [];
+            _cachedSessions = data.sessions || [];
+            return;
+        } catch (e) { console.error(e); }
+    }
+    if (_cachedSubjects === null) _cachedSubjects = [];
+    if (_cachedSessions === null) _cachedSessions = [];
+}
+
 // ===== Auth =====
 export async function loginUser(username) {
     const res = await fetch(`${API_BASE}/auth`, {
@@ -68,11 +90,13 @@ export async function migrateLocalData() {
 
 // ===== Matérias (Subjects) =====
 export async function getSubjectsAsync() {
+    loadLocalDataIfNeeded();
     if (!_userId) return _cachedSubjects || [];
     try {
         const res = await fetch(`${API_BASE}/subjects/${_userId}`);
         const data = await res.json();
         _cachedSubjects = data;
+        persistLocalData();
         return data;
     } catch (e) {
         return _cachedSubjects || [];
@@ -81,11 +105,17 @@ export async function getSubjectsAsync() {
 
 // Synchronous getter for cached data
 export function getSubjects() {
+    loadLocalDataIfNeeded();
     return _cachedSubjects || [];
 }
 
 export async function addSubject(name) {
-    if (!_userId) return _cachedSubjects || [];
+    loadLocalDataIfNeeded();
+    if (!_userId) {
+        if (!_cachedSubjects.includes(name)) _cachedSubjects.push(name);
+        persistLocalData();
+        return _cachedSubjects;
+    }
     try {
         const res = await fetch(`${API_BASE}/subjects/${_userId}`, {
             method: 'POST',
@@ -94,17 +124,23 @@ export async function addSubject(name) {
         });
         const data = await res.json();
         _cachedSubjects = data;
+        persistLocalData();
         return data;
     } catch (e) {
         // Fallback: add locally
-        if (!_cachedSubjects) _cachedSubjects = [];
         if (!_cachedSubjects.includes(name)) _cachedSubjects.push(name);
+        persistLocalData();
         return _cachedSubjects;
     }
 }
 
 export async function removeSubject(name) {
-    if (!_userId) return _cachedSubjects || [];
+    loadLocalDataIfNeeded();
+    if (_cachedSubjects) _cachedSubjects = _cachedSubjects.filter(s => s !== name);
+    if (!_userId) {
+        persistLocalData();
+        return _cachedSubjects || [];
+    }
     try {
         const res = await fetch(`${API_BASE}/subjects/${_userId}`, {
             method: 'POST',
@@ -113,20 +149,23 @@ export async function removeSubject(name) {
         });
         const data = await res.json();
         _cachedSubjects = data;
+        persistLocalData();
         return data;
     } catch (e) {
-        if (_cachedSubjects) _cachedSubjects = _cachedSubjects.filter(s => s !== name);
+        persistLocalData();
         return _cachedSubjects || [];
     }
 }
 
 // ===== Sessões de Estudo =====
 export async function getSessionsAsync() {
+    loadLocalDataIfNeeded();
     if (!_userId) return _cachedSessions || [];
     try {
         const res = await fetch(`${API_BASE}/sessions/${_userId}`);
         const data = await res.json();
         _cachedSessions = data;
+        persistLocalData();
         return data;
     } catch (e) {
         return _cachedSessions || [];
@@ -134,11 +173,18 @@ export async function getSessionsAsync() {
 }
 
 export function getSessions() {
+    loadLocalDataIfNeeded();
     return _cachedSessions || [];
 }
 
 export async function saveSession(session) {
-    if (!_userId) return _cachedSessions || [];
+    loadLocalDataIfNeeded();
+    const localSession = { ...session, id: Date.now().toString() };
+    if (!_userId) {
+        _cachedSessions.push(localSession);
+        persistLocalData();
+        return _cachedSessions;
+    }
     try {
         await fetch(`${API_BASE}/sessions`, {
             method: 'POST',
@@ -148,11 +194,22 @@ export async function saveSession(session) {
         return await getSessionsAsync();
     } catch (e) {
         console.error('Failed to save session:', e);
-        return _cachedSessions || [];
+        _cachedSessions.push(localSession);
+        persistLocalData();
+        return _cachedSessions;
     }
 }
 
 export async function editSession(id, updates) {
+    loadLocalDataIfNeeded();
+    if (_cachedSessions) {
+        const idx = _cachedSessions.findIndex(s => s._id === id || s.id === id);
+        if (idx >= 0) _cachedSessions[idx] = { ..._cachedSessions[idx], ...updates };
+    }
+    if (!_userId) {
+        persistLocalData();
+        return _cachedSessions || [];
+    }
     try {
         await fetch(`${API_BASE}/sessions/${id}`, {
             method: 'PUT',
@@ -162,29 +219,44 @@ export async function editSession(id, updates) {
         return await getSessionsAsync();
     } catch (e) {
         console.error('Failed to edit session:', e);
+        persistLocalData();
         return _cachedSessions || [];
     }
 }
 
 export async function deleteSession(id) {
+    loadLocalDataIfNeeded();
+    if (_cachedSessions) {
+        _cachedSessions = _cachedSessions.filter(s => s._id !== id && s.id !== id);
+    }
+    if (!_userId) {
+        persistLocalData();
+        return _cachedSessions || [];
+    }
     try {
         await fetch(`${API_BASE}/sessions/${id}`, { method: 'DELETE' });
         return await getSessionsAsync();
     } catch (e) {
         console.error('Failed to delete session:', e);
+        persistLocalData();
         return _cachedSessions || [];
     }
 }
 
 export async function clearAllSessions() {
-    if (!_userId) return [];
+    loadLocalDataIfNeeded();
+    _cachedSessions = [];
+    if (!_userId) {
+        persistLocalData();
+        return [];
+    }
     try {
         await fetch(`${API_BASE}/sessions/user/${_userId}`, { method: 'DELETE' });
-        _cachedSessions = [];
         return [];
     } catch (e) {
         console.error('Failed to clear sessions:', e);
-        return _cachedSessions || [];
+        persistLocalData();
+        return [];
     }
 }
 
