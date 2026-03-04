@@ -1,8 +1,8 @@
 version: 0.0.0
 files:
-  - url: Study-Tracker-Setup-0.0.0.exe
+  - url: Study-Tracker-Setup-0.0.1.exe
     sha512: 7xhewGJh8OEyej0dBteWg1kaqknJEHVTnxE59R43ejOeE+BMVErB19FyNvkHunKLWcs5QmxfjfuLo7Nak7NTEQ==
     size: 99349333
-path: Study-Tracker-Setup-0.0.0.exe
+path: Study-Tracker-Setup-0.0.1.exe
 sha512: 7xhewGJh8OEyej0dBteWg1kaqknJEHVTnxE59R43ejOeE+BMVErB19FyNvkHunKLWcs5QmxfjfuLo7Nak7NTEQ==
 releaseDate: '2026-03-04T01:02:59.737Z'
